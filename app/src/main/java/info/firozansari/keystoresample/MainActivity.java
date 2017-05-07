@@ -2,8 +2,13 @@ package info.firozansari.keystoresample;
 
 import android.content.Context;
 import android.content.DialogInterface;
+import android.content.SharedPreferences;
+import android.os.Build;
 import android.security.KeyPairGeneratorSpec;
 import android.os.Bundle;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
+import android.support.annotation.RequiresApi;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Base64;
@@ -21,10 +26,15 @@ import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.Key;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.SecureRandom;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
@@ -35,10 +45,13 @@ import java.util.List;
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
+import javax.crypto.KeyGenerator;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.SecretKeySpec;
 import javax.security.auth.x500.X500Principal;
 
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity{
 
     /*The Keystore is not used directly for storing application secrets such as password, however,
     it provides a secure container, which can be used by apps to store their private keys, in a way
@@ -52,11 +65,16 @@ public class MainActivity extends AppCompatActivity {
     restricted to use by VPN and WiFi systems. The Keystore itself is encrypted using the user’s
     own lockscreen pin/password, hence, when the device screen is locked the Keystore is unavailable.
     Keep this in mind if you have a background service that could need to access your application secrets.*/
-    
-    static final String TAG = "SimpleKeystoreApp";
-    static final String CIPHER_TYPE = "RSA/ECB/PKCS1Padding";
-    static final String CIPHER_PROVIDER = "AndroidOpenSSL";
 
+    private static final String TAG = "KeystoreSample";
+    private static final String AndroidKeyStore = "AndroidKeyStore";
+    private static final String AES_MODE = "AES/GCM/NoPadding";
+    private static final String RSA_MODE =  "RSA/ECB/PKCS1Padding";
+    private static final String SHARED_PREFENCE_NAME =  "info.firozansari.keystoresample";
+    private static final String ENCRYPTED_KEY =  "encrypted_key";
+    private static String KEY_ALIAS = "";
+
+    Button generateBtn;
     EditText aliasText;
     EditText startText, decryptedText, encryptedText;
     List<String> keyAliases;
@@ -69,10 +87,12 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         try {
-            keyStore = KeyStore.getInstance("AndroidKeyStore");
+            keyStore = KeyStore.getInstance(AndroidKeyStore);
             keyStore.load(null);
         }
-        catch(Exception e) {}
+        catch(Exception e) {
+
+        }
         refreshKeys();
 
         setContentView(R.layout.activity_main);
@@ -87,6 +107,25 @@ public class MainActivity extends AppCompatActivity {
         listView.addHeaderView(listHeader);
         listAdapter = new KeyRecyclerAdapter(this, R.id.keyAlias);
         listView.setAdapter(listAdapter);
+
+        generateBtn = (Button) listHeader.findViewById(R.id.generateKeyPair);
+        generateBtn.setOnClickListener( new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                KEY_ALIAS = aliasText.getText().toString();
+                if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+                    createNewKeysNewAPI(v, KEY_ALIAS);
+                } else{
+                    try {
+                        createNewKeysOldAPI(v, KEY_ALIAS);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+
+                refreshKeys();
+            }
+        });
     }
 
     private void refreshKeys() {
@@ -103,31 +142,115 @@ public class MainActivity extends AppCompatActivity {
             listAdapter.notifyDataSetChanged();
     }
 
-    public void createNewKeys(View view) {
-        String alias = aliasText.getText().toString();
+    @RequiresApi(api = Build.VERSION_CODES.M)
+    public void createNewKeysNewAPI(View view, String alias) {
         try {
             // Create new key if needed
             if (!keyStore.containsAlias(alias)) {
-                Calendar start = Calendar.getInstance();
-                Calendar end = Calendar.getInstance();
-                end.add(Calendar.YEAR, 1);
-                KeyPairGeneratorSpec spec = new KeyPairGeneratorSpec.Builder(this)
-                        .setAlias(alias)
-                        .setSubject(new X500Principal("CN=Sample Name, O=Android Authority"))
-                        .setSerialNumber(BigInteger.ONE)
-                        .setStartDate(start.getTime())
-                        .setEndDate(end.getTime())
-                        .build();
-                KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA", "AndroidKeyStore");
-                generator.initialize(spec);
-
-                KeyPair keyPair = generator.generateKeyPair();
+                KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, AndroidKeyStore);
+                keyGenerator.init(
+                        new KeyGenParameterSpec.Builder(alias,
+                                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                                .setRandomizedEncryptionRequired(false)
+                                .build());
+                keyGenerator.generateKey();
             }
         } catch (Exception e) {
             Toast.makeText(this, "Exception " + e.getMessage() + " occured", Toast.LENGTH_LONG).show();
             Log.e(TAG, Log.getStackTraceString(e));
         }
-        refreshKeys();
+    }
+
+    public void createNewKeysOldAPI(View view, String alias) throws Exception {
+        /* Generate a pair of RSA keys;
+         * Generate a random AES key;
+         * Encrypt the AES key using the RSA public key;
+         * Store the encrypted AES key in Preferences. */
+
+        // Generate the RSA key pairs
+        if (!keyStore.containsAlias(alias)) {
+            // Generate a key pair for encryption
+            Calendar start = Calendar.getInstance();
+            Calendar end = Calendar.getInstance();
+            end.add(Calendar.YEAR, 30);
+            KeyPairGeneratorSpec spec = new      KeyPairGeneratorSpec.Builder(MainActivity.this)
+                    .setAlias(alias)
+                    .setSubject(new X500Principal("CN=" + alias))
+                    .setSerialNumber(BigInteger.TEN)
+                    .setStartDate(start.getTime())
+                    .setEndDate(end.getTime())
+                    .build();
+            KeyPairGenerator kpg = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, AndroidKeyStore);
+            kpg.initialize(spec);
+            kpg.generateKeyPair();
+        }
+
+        SharedPreferences pref = getSharedPreferences(SHARED_PREFENCE_NAME, Context.MODE_PRIVATE);
+        String enryptedKeyB64 = pref.getString(ENCRYPTED_KEY, null);
+        if (enryptedKeyB64 == null) {
+            byte[] key = new byte[16];
+            SecureRandom secureRandom = new SecureRandom();
+            secureRandom.nextBytes(key);
+            byte[] encryptedKey = rsaEncrypt(key);
+            enryptedKeyB64 = Base64.encodeToString(encryptedKey, Base64.DEFAULT);
+            SharedPreferences.Editor edit = pref.edit();
+            edit.putString(ENCRYPTED_KEY, enryptedKeyB64);
+            edit.commit();
+        }
+
+    }
+
+    private byte[] rsaEncrypt(byte[] secret) throws Exception{
+        KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry) keyStore.getEntry(KEY_ALIAS, null);
+        // Encrypt the text
+        Cipher inputCipher = Cipher.getInstance(RSA_MODE, "AndroidOpenSSL");
+        inputCipher.init(Cipher.ENCRYPT_MODE, privateKeyEntry.getCertificate().getPublicKey());
+
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        CipherOutputStream cipherOutputStream = new CipherOutputStream(outputStream, inputCipher);
+        cipherOutputStream.write(secret);
+        cipherOutputStream.close();
+
+        byte[] vals = outputStream.toByteArray();
+        return vals;
+    }
+
+    private  byte[]  rsaDecrypt(byte[] encrypted) throws Exception {
+        KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry)keyStore.getEntry(KEY_ALIAS, null);
+        Cipher output = Cipher.getInstance(RSA_MODE, "AndroidOpenSSL");
+        output.init(Cipher.DECRYPT_MODE, privateKeyEntry.getPrivateKey());
+        CipherInputStream cipherInputStream = new CipherInputStream(
+                new ByteArrayInputStream(encrypted), output);
+        ArrayList<Byte> values = new ArrayList<>();
+        int nextByte;
+        while ((nextByte = cipherInputStream.read()) != -1) {
+            values.add((byte)nextByte);
+        }
+
+        byte[] bytes = new byte[values.size()];
+        for(int i = 0; i < bytes.length; i++) {
+            bytes[i] = values.get(i).byteValue();
+        }
+        return bytes;
+    }
+
+    private Key getSecretKey(Context context) throws Exception{
+        SharedPreferences pref = context.getSharedPreferences(SHARED_PREFENCE_NAME, Context.MODE_PRIVATE);
+        String enryptedKeyB64 = pref.getString(ENCRYPTED_KEY, null);
+        // need to check null, omitted here
+        byte[] encryptedKey = Base64.decode(enryptedKeyB64, Base64.DEFAULT);
+        byte[] key = rsaDecrypt(encryptedKey);
+        return new SecretKeySpec(key, "AES");
+    }
+
+    public String encrypt(Context context, byte[] input) throws Exception {
+        Cipher c = Cipher.getInstance(AES_MODE, "BC");
+        c.init(Cipher.ENCRYPT_MODE, getSecretKey(context));
+        byte[] encodedBytes = c.doFinal(input);
+        String encryptedBase64Encoded =  Base64.encodeToString(encodedBytes, Base64.DEFAULT);
+        return encryptedBase64Encoded;
     }
 
     public void deleteKey(final String alias) {
@@ -215,6 +338,7 @@ public class MainActivity extends AppCompatActivity {
             Log.e(TAG, Log.getStackTraceString(e));
         }
     }
+
 
     public class KeyRecyclerAdapter extends ArrayAdapter<String> {
 

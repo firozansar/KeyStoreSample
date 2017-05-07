@@ -23,8 +23,7 @@
         android:layout_below="@id/aliasText"
         android:layout_centerHorizontal="true"
         android:layout_alignParentRight="true"
-        android:text="@string/generate"
-        android:onClick="createNewKeys" />
+        android:text="@string/generate" />
 
     <EditText
         android:id="@+id/startText"
