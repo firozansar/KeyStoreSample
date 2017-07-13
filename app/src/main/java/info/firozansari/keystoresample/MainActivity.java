@@ -4,8 +4,8 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.os.Build;
-import android.security.KeyPairGeneratorSpec;
 import android.os.Bundle;
+import android.security.KeyPairGeneratorSpec;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.support.annotation.RequiresApi;
@@ -26,14 +26,10 @@ import android.widget.Toast;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
-import java.security.InvalidAlgorithmParameterException;
 import java.security.Key;
-import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
 import java.security.SecureRandom;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
@@ -46,7 +42,6 @@ import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyGenerator;
-import javax.crypto.NoSuchPaddingException;
 import javax.crypto.spec.SecretKeySpec;
 import javax.security.auth.x500.X500Principal;
 
@@ -158,8 +153,9 @@ public class MainActivity extends AppCompatActivity{
                 keyGenerator.generateKey();
             }
         } catch (Exception e) {
-            Toast.makeText(this, "Exception " + e.getMessage() + " occured", Toast.LENGTH_LONG).show();
-            Log.e(TAG, Log.getStackTraceString(e));
+            String message = "Exception happen in createNewKeysNewAPI method: " + e.getMessage();
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            Log.e(TAG, message);
         }
     }
 
@@ -263,10 +259,9 @@ public class MainActivity extends AppCompatActivity{
                             keyStore.deleteEntry(alias);
                             refreshKeys();
                         } catch (KeyStoreException e) {
-                            Toast.makeText(MainActivity.this,
-                                    "Exception " + e.getMessage() + " occured",
-                                    Toast.LENGTH_LONG).show();
-                            Log.e(TAG, Log.getStackTraceString(e));
+                            String message = "Exception happen in deleteKey method: " + e.getMessage();
+                            Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                            Log.e(TAG, message);
                         }
                         dialog.dismiss();
                     }
@@ -303,8 +298,9 @@ public class MainActivity extends AppCompatActivity{
             byte [] vals = outputStream.toByteArray();
             encryptedText.setText(Base64.encodeToString(vals, Base64.DEFAULT));
         } catch (Exception e) {
-            Toast.makeText(this, "Exception " + e.getMessage() + " occured", Toast.LENGTH_LONG).show();
-            Log.e(TAG, Log.getStackTraceString(e));
+            String message = "Exception happen in encryptString method: " + e.getMessage();
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            Log.e(TAG, message);
         }
     }
 
@@ -334,8 +330,9 @@ public class MainActivity extends AppCompatActivity{
             decryptedText.setText(finalText);
 
         } catch (Exception e) {
-            Toast.makeText(this, "Exception " + e.getMessage() + " occured", Toast.LENGTH_LONG).show();
-            Log.e(TAG, Log.getStackTraceString(e));
+            String message = "Exception happen in decryptString method: " + e.getMessage();
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            Log.e(TAG, message);
         }
     }
 
