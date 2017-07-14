@@ -30,18 +30,25 @@ import java.security.Key;
 import java.security.KeyPairGenerator;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
+import java.security.spec.AlgorithmParameterSpec;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Enumeration;
+import java.util.GregorianCalendar;
 import java.util.List;
 
 import javax.crypto.Cipher;
 import javax.crypto.CipherInputStream;
 import javax.crypto.CipherOutputStream;
 import javax.crypto.KeyGenerator;
+import javax.crypto.NoSuchPaddingException;
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import javax.security.auth.x500.X500Principal;
 
@@ -67,7 +74,11 @@ public class MainActivity extends AppCompatActivity{
     private static final String RSA_MODE =  "RSA/ECB/PKCS1Padding";
     private static final String SHARED_PREFENCE_NAME =  "info.firozansari.keystoresample";
     private static final String ENCRYPTED_KEY =  "encrypted_key";
-    private static String KEY_ALIAS = "";
+    public static final String SIGNATURE_SHA256withRSA = "SHA256withRSA";
+    public static final int GCM_NONCE_LENGTH = 12; // in bytes
+    private static String KEY_ALIAS = "myKey";
+    public static final String TYPE_RSA = "RSA";
+    public static final String TYPE_AES = "AES";
 
     Button generateBtn;
     EditText aliasText;
@@ -137,12 +148,18 @@ public class MainActivity extends AppCompatActivity{
             listAdapter.notifyDataSetChanged();
     }
 
+    /**
+     * Creates a public and private key and stores it using the Android Key Store using new API, so that only
+     * this application will be able to access the keys.
+     */
     @RequiresApi(api = Build.VERSION_CODES.M)
     public void createNewKeysNewAPI(View view, String alias) {
         try {
             // Create new key if needed
             if (!keyStore.containsAlias(alias)) {
-                KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, AndroidKeyStore);
+
+                KeyGenerator keyGenerator = KeyGenerator.getInstance(TYPE_AES, AndroidKeyStore);
+
                 keyGenerator.init(
                         new KeyGenParameterSpec.Builder(alias,
                                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
@@ -159,6 +176,10 @@ public class MainActivity extends AppCompatActivity{
         }
     }
 
+    /**
+     * Creates a public and private key and stores it using the Android Key Store using old API, so that only
+     * this application will be able to access the keys.
+     */
     public void createNewKeysOldAPI(View view, String alias) throws Exception {
         /* Generate a pair of RSA keys;
          * Generate a random AES key;
@@ -241,13 +262,6 @@ public class MainActivity extends AppCompatActivity{
         return new SecretKeySpec(key, "AES");
     }
 
-    public String encrypt(Context context, byte[] input) throws Exception {
-        Cipher c = Cipher.getInstance(AES_MODE, "BC");
-        c.init(Cipher.ENCRYPT_MODE, getSecretKey(context));
-        byte[] encodedBytes = c.doFinal(input);
-        String encryptedBase64Encoded =  Base64.encodeToString(encodedBytes, Base64.DEFAULT);
-        return encryptedBase64Encoded;
-    }
 
     public void deleteKey(final String alias) {
         AlertDialog alertDialog =new AlertDialog.Builder(this)
@@ -275,10 +289,19 @@ public class MainActivity extends AppCompatActivity{
         alertDialog.show();
     }
 
+    public String encryptStringNew() throws Exception {
+        Cipher c = Cipher.getInstance(AES_MODE, "BC");
+        c.init(Cipher.ENCRYPT_MODE, getSecretKey(MainActivity.this));
+        byte[] encodedBytes = c.doFinal(startText.getText().toString().getBytes());
+        String encryptedBase64Encoded =  Base64.encodeToString(encodedBytes, Base64.DEFAULT);
+        return encryptedBase64Encoded;
+    }
+
+
     public void encryptString(String alias) {
         try {
             KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry)keyStore.getEntry(alias, null);
-            RSAPublicKey publicKey = (RSAPublicKey) privateKeyEntry.getCertificate().getPublicKey();
+            PublicKey publicKey = privateKeyEntry.getCertificate().getPublicKey();
 
             String initialText = startText.getText().toString();
             if(initialText.isEmpty()) {
@@ -286,7 +309,7 @@ public class MainActivity extends AppCompatActivity{
                 return;
             }
 
-            Cipher inCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding", "AndroidOpenSSL");
+            Cipher inCipher = Cipher.getInstance("RSA/ECB/PKCS1Padding");
             inCipher.init(Cipher.ENCRYPT_MODE, publicKey);
 
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
@@ -304,12 +327,20 @@ public class MainActivity extends AppCompatActivity{
         }
     }
 
+    public void decryptStringNew() throws Exception {
+        String cipherText = encryptedText.getText().toString();
+        Cipher c = Cipher.getInstance(AES_MODE, "BC");
+        c.init(Cipher.DECRYPT_MODE, getSecretKey(MainActivity.this), new GCMParameterSpec(128, new byte[GCM_NONCE_LENGTH]));
+        byte[] decodedBytes = c.doFinal(cipherText.getBytes());
+        decryptedText.setText(new String(decodedBytes));
+    }
+
     public void decryptString(String alias) {
         try {
             KeyStore.PrivateKeyEntry privateKeyEntry = (KeyStore.PrivateKeyEntry)keyStore.getEntry(alias, null);
-            RSAPrivateKey privateKey = (RSAPrivateKey) privateKeyEntry.getPrivateKey();
+            PrivateKey privateKey = privateKeyEntry.getPrivateKey();
 
-            Cipher output = Cipher.getInstance("RSA/ECB/PKCS1Padding", "AndroidOpenSSL");
+            Cipher output = Cipher.getInstance("RSA/ECB/PKCS1Padding");
             output.init(Cipher.DECRYPT_MODE, privateKey);
 
             String cipherText = encryptedText.getText().toString();
@@ -359,14 +390,31 @@ public class MainActivity extends AppCompatActivity{
             encryptButton.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
-                    encryptString(keyAlias.getText().toString());
+                    String input = startText.getText().toString();
+                    if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+                        try {
+                            encryptStringNew();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    } else {
+                        encryptString(input);
+                    }
                 }
             });
             Button decryptButton = (Button) itemView.findViewById(R.id.decryptButton);
             decryptButton.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
-                    decryptString(keyAlias.getText().toString());
+                    if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.M){
+                        try {
+                            decryptStringNew();
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    } else {
+                        decryptString(keyAlias.getText().toString());
+                    }
                 }
             });
             final Button deleteButton = (Button) itemView.findViewById(R.id.deleteButton);
